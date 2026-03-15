@@ -16,13 +16,13 @@ export const UnityPlayer: React.FC<UnityPlayerProps> = ({ onCanvasReady }) => {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    const buildUrl = "Build";
-    const loaderUrl = `${buildUrl}/1332026.loader.js`;
+    const buildUrl = "unity-package/Build";
+    const loaderUrl = `${buildUrl}/1532026.loader.js`;
     const config = {
       arguments: [],
-      dataUrl: `${buildUrl}/1332026.data.br`,
-      frameworkUrl: `${buildUrl}/1332026.framework.js.br`,
-      codeUrl: `${buildUrl}/1332026.wasm.br`,
+      dataUrl: `${buildUrl}/1532026.data.br`,
+      frameworkUrl: `${buildUrl}/1532026.framework.js.br`,
+      codeUrl: `${buildUrl}/1532026.wasm.br`,
       streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "gonzalo rosso",
@@ -55,18 +55,18 @@ export const UnityPlayer: React.FC<UnityPlayerProps> = ({ onCanvasReady }) => {
 
   return (
     <div id="unity-container" className="w-full h-full bg-black rounded-xl overflow-hidden relative border border-[#141414]">
-      <canvas 
-        id="unity-canvas" 
-        ref={canvasRef} 
+      <canvas
+        id="unity-canvas"
+        ref={canvasRef}
         className="w-full h-full"
         style={{ display: isLoaded ? 'block' : 'none' }}
       />
-      
+
       {!isLoaded && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#141414] text-[#E4E3E0] p-8">
           <div className="w-full max-w-xs h-1 bg-white/10 rounded-full overflow-hidden mb-4">
-            <div 
-              className="h-full bg-white transition-all duration-300" 
+            <div
+              className="h-full bg-white transition-all duration-300"
               style={{ width: `${progress * 100}%` }}
             />
           </div>
