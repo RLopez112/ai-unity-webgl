@@ -18,7 +18,8 @@ import {
   Gamepad2,
   Camera,
   Save,
-  FolderOpen
+  FolderOpen,
+  CheckCircle2
 } from 'lucide-react';
 import { Stage, Layer, Image as KonvaImage, Transformer } from 'react-konva';
 import useImage from 'use-image';
@@ -125,6 +126,7 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [showUnity, setShowUnity] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
 
   const stageRef = useRef<any>(null);
   const unityCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -253,7 +255,7 @@ export default function App() {
     }
   };
 
-  const exportProject = () => {
+  const exportProject = async () => {
     const projectData = {
       baseImage,
       baseImageWeight,
@@ -263,10 +265,43 @@ export default function App() {
       prompt
     };
     const blob = new Blob([JSON.stringify(projectData)], { type: 'application/json' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'ai-studio-project.json';
-    link.click();
+    
+    try {
+      // Use the native File System Access API if available
+      if ('showSaveFilePicker' in window) {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: 'ai-studio-project.json',
+          types: [{
+            description: 'JSON File',
+            accept: { 'application/json': ['.json'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        
+        setIsSaved(true);
+        setTimeout(() => setIsSaved(false), 2000);
+      } else {
+        // Fallback for browsers that don't support showSaveFilePicker
+        const fileName = window.prompt("Enter project name:", "ai-studio-project");
+        if (!fileName) return; // User cancelled
+
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
+        link.click();
+
+        setIsSaved(true);
+        setTimeout(() => setIsSaved(false), 2000);
+      }
+    } catch (err: any) {
+      // Ignore AbortError (user cancelled the save dialog)
+      if (err.name !== 'AbortError') {
+        console.error("Failed to save project:", err);
+        alert("Failed to save the project.");
+      }
+    }
   };
 
   const importProject = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -308,7 +343,7 @@ export default function App() {
       <header id="app-header" className="border-b border-[#141414] p-6 flex justify-between items-center">
         <div>
           <h1 id="app-title" className="text-2xl font-bold tracking-tight uppercase">AI Image Studio</h1>
-          <p id="app-version" className="text-xs opacity-50 font-mono">v1.0.0 // PROTOTYPE</p>
+          <p id="app-version" className="text-xs opacity-50 font-mono">v0.1.0 // PROTOTYPE</p>
         </div>
         <div className="flex gap-4">
           <label className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-[#141414] rounded-full text-sm font-medium hover:bg-[#141414]/5 transition-colors cursor-pointer">
@@ -730,6 +765,24 @@ export default function App() {
           )}
         </section>
       </main>
+
+      {/* Save Confirmation Toast */}
+      <AnimatePresence>
+        {isSaved && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="fixed bottom-8 right-8 z-[100] flex items-center gap-3 px-6 py-4 bg-[#141414] text-[#E4E3E0] rounded-2xl shadow-2xl pointer-events-none"
+          >
+            <CheckCircle2 size={24} className="text-green-400" />
+            <div className="flex flex-col">
+              <span className="text-sm font-bold uppercase tracking-wider">Project Saved</span>
+              <span className="text-[10px] opacity-60">Your work has been exported</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
