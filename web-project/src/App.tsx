@@ -265,7 +265,7 @@ export default function App() {
       prompt
     };
     const blob = new Blob([JSON.stringify(projectData)], { type: 'application/json' });
-    
+
     try {
       // Use the native File System Access API if available
       if ('showSaveFilePicker' in window) {
@@ -279,7 +279,7 @@ export default function App() {
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
-        
+
         setIsSaved(true);
         setTimeout(() => setIsSaved(false), 2000);
       } else {

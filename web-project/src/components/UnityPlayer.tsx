@@ -21,12 +21,12 @@ export const UnityPlayer: React.FC<UnityPlayerProps> = ({ onCanvasReady }) => {
     initRef.current = true;
 
     var buildUrl = "unity-package/Build";
-    var loaderUrl = buildUrl + "/1532026.loader.js";
+    var loaderUrl = buildUrl + "/16032026b.loader.js";
     var config = {
       arguments: [],
-      dataUrl: buildUrl + "/1532026.data",
-      frameworkUrl: buildUrl + "/1532026.framework.js",
-      codeUrl: buildUrl + "/1532026.wasm",
+      dataUrl: buildUrl + "/16032026b.data",
+      frameworkUrl: buildUrl + "/16032026b.framework.js",
+      codeUrl: buildUrl + "/16032026b.wasm",
       streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "gonzalo rosso",
@@ -50,7 +50,7 @@ export const UnityPlayer: React.FC<UnityPlayerProps> = ({ onCanvasReady }) => {
           // We can't access it easily from TS, so we might need to rely on the canvas behavior
           // But the best way is often unityInstance.SendMessage if they have a script for it,
           // or setting the canvas tabindex. 
-          
+
           setIsLoaded(true);
           if (onCanvasReady && canvasRef.current) {
             onCanvasReady(canvasRef.current);
