@@ -1,8 +1,5 @@
-node_modules/
-build/
-dist/
-coverage/
-.DS_Store
-*.log
-.env*
-!.env.example
+# amplify
+node_modules
+.amplify
+amplify_outputs*
+amplifyconfiguration*
