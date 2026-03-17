@@ -20,7 +20,7 @@ export const UnityPlayer: React.FC<UnityPlayerProps> = ({ onCanvasReady }) => {
     if (initRef.current) return;
     initRef.current = true;
 
-    var buildUrl = "unity-package/Build";
+    var buildUrl = "/assets/unity-package/Build";
     var loaderUrl = buildUrl + "/16032026b.loader.js";
     var config = {
       arguments: [],
