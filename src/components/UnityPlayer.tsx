@@ -21,12 +21,12 @@ export const UnityPlayer: React.FC<UnityPlayerProps> = ({ onCanvasReady }) => {
     initRef.current = true;
 
     var buildUrl = "/assets/unity-package/Build";
-    var loaderUrl = buildUrl + "/16032026b.loader.js";
+    var loaderUrl = buildUrl + "/delivery.loader.js";
     var config = {
       arguments: [],
-      dataUrl: buildUrl + "/16032026b.data",
-      frameworkUrl: buildUrl + "/16032026b.framework.js",
-      codeUrl: buildUrl + "/16032026b.wasm",
+      dataUrl: buildUrl + "/delivery.data",
+      frameworkUrl: buildUrl + "/delivery.framework.js",
+      codeUrl: buildUrl + "/delivery.wasm",
       streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "gonzalo rosso",
