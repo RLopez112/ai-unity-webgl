@@ -25,8 +25,10 @@ import { Stage, Layer, Image as KonvaImage, Transformer } from 'react-konva';
 import useImage from 'use-image';
 import { motion, AnimatePresence } from 'motion/react';
 import { editImage, StyleReference } from './services/aiService';
-import { UnityPlayer } from './components/UnityPlayer';
+import { UnityPlayer, setUnityKeyboardCapture } from './components/UnityPlayer';
 import { applySobelFilter } from './utils/imageFilters';
+import { MaskDrawer } from './components/MaskDrawer';
+import { Pencil as Pen, Eraser, Move, Sparkles } from 'lucide-react';
 
 // --- Types ---
 
@@ -38,6 +40,18 @@ interface OverlayItem {
   width: number;
   height: number;
   rotation: number;
+}
+
+interface InpaintLayer {
+  id: string;
+  lines: any[];
+  prompt: string;
+}
+
+interface InpaintLayer {
+  id: string;
+  lines: any[];
+  prompt: string;
 }
 
 // --- Components ---
@@ -127,11 +141,16 @@ export default function App() {
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [showUnity, setShowUnity] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [isInpaintMode, setIsInpaintMode] = useState(false);
+  const [inpaintLayers, setInpaintLayers] = useState<InpaintLayer[]>([]);
+  const [selectedInpaintId, setSelectedInpaintId] = useState<string | null>(null);
+  const [brushSize, setBrushSize] = useState(40);
 
   const stageRef = useRef<any>(null);
   const unityCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLElement>(null);
   const [baseImgObj] = useImage(baseImage || '');
+  const [resultImgObj] = useImage(resultImage || '');
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
 
   // Adjust canvas size to fill the main view area dynamically
@@ -148,6 +167,18 @@ export default function App() {
     // Check size immediately
     checkSize();
 
+    // Global keyboard capture fix for Unity WebGL
+    const stopPropagationIfInputFocused = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+        e.stopPropagation();
+      }
+    };
+
+    window.addEventListener('keydown', stopPropagationIfInputFocused, true);
+    window.addEventListener('keyup', stopPropagationIfInputFocused, true);
+    window.addEventListener('keypress', stopPropagationIfInputFocused, true);
+
     // Check size on window resize
     window.addEventListener('resize', checkSize);
 
@@ -160,6 +191,9 @@ export default function App() {
 
     return () => {
       window.removeEventListener('resize', checkSize);
+      window.removeEventListener('keydown', stopPropagationIfInputFocused, true);
+      window.removeEventListener('keyup', stopPropagationIfInputFocused, true);
+      window.removeEventListener('keypress', stopPropagationIfInputFocused, true);
       if (observer) observer.disconnect();
     };
   }, [baseImage, showUnity]);
@@ -210,7 +244,41 @@ export default function App() {
       // 1. Capture the canvas state (base + overlays)
       const compositeBase64 = stageRef.current.toDataURL();
 
-      const result = await editImage(compositeBase64, prompt, styleReferences, baseImageWeight, sobelImage, sobelWeight);
+      const inpaintRequests: any[] = [];
+      if (isInpaintMode) {
+        for (const layer of inpaintLayers) {
+          if (layer.lines.length === 0) continue;
+
+          // Create a temporary canvas for the mask (White on Black)
+          const maskCanvas = document.createElement('canvas');
+          maskCanvas.width = canvasSize.width;
+          maskCanvas.height = canvasSize.height;
+          const mctx = maskCanvas.getContext('2d');
+          if (mctx) {
+            mctx.fillStyle = 'black';
+            mctx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+            mctx.lineCap = 'round';
+            mctx.lineJoin = 'round';
+            mctx.strokeStyle = 'white';
+
+            layer.lines.forEach(line => {
+              mctx.lineWidth = line.strokeWidth;
+              mctx.beginPath();
+              mctx.moveTo(line.points[0], line.points[1]);
+              for (let i = 2; i < line.points.length; i += 2) {
+                mctx.lineTo(line.points[i], line.points[i+1]);
+              }
+              mctx.stroke();
+            });
+            inpaintRequests.push({
+              maskBase64: maskCanvas.toDataURL('image/png'),
+              prompt: layer.prompt
+            });
+          }
+        }
+      }
+
+      const result = await editImage(compositeBase64, prompt, styleReferences, baseImageWeight, sobelImage, sobelWeight, inpaintRequests);
       setResultImage(result);
     } catch (error) {
       console.error(error);
@@ -329,12 +397,92 @@ export default function App() {
     e.target.value = '';
   };
 
-  const downloadResult = () => {
-    if (!resultImage) return;
-    const link = document.createElement('a');
-    link.download = 'ai-studio-result.png';
-    link.href = resultImage;
-    link.click();
+  const downloadResult = async () => {
+    if (!resultImage) {
+      alert("No result image found. Generate an edit first.");
+      return;
+    }
+    
+    try {
+      // More robust method using built-in browser parsing
+      const response = await fetch(resultImage);
+      const blob = await response.blob();
+
+      // NEW: Try Native File System Access API first (most reliable)
+      if ('showSaveFilePicker' in window) {
+        try {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: `ai-studio-result-${Date.now()}.png`,
+            types: [{
+              description: 'PNG Image',
+              accept: { 'image/png': ['.png'] },
+            }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return; // Success!
+        } catch (fileErr: any) {
+          // If user cancels, stop. Otherwise, try fallback.
+          if (fileErr.name === 'AbortError') return;
+          console.warn("Native save failed, trying fallback...", fileErr);
+        }
+      }
+      
+      // FALLBACK 1: Blob URL Download
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ai-studio-result-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      
+    } catch (err) {
+      console.error("Export Result failed:", err);
+      // FALLBACK 2: Direct DataURL link
+      const link = document.createElement('a');
+      link.download = `ai-studio-result-${Date.now()}.png`;
+      link.href = resultImage;
+      link.click();
+    }
+  };
+
+  const downloadCanvas = () => {
+    if (!stageRef.current) {
+      alert("Please switch to Editor View (00) to export the canvas composition.");
+      return;
+    }
+    
+    // Hide transformer and other UI elements for clean export
+    setSelectedId(null);
+    
+    // Tiny delay to allow React/Konva to update before capture
+    setTimeout(async () => {
+      try {
+        const dataUrl = stageRef.current.toDataURL({ 
+          pixelRatio: 2, 
+          quality: 1 
+        });
+        
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `ai-studio-composition-${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      } catch (err) {
+        console.error("Export failed:", err);
+        alert("Export failed. This might be due to cross-origin images on the canvas.");
+      }
+    }, 50);
   };
 
   return (
@@ -358,13 +506,24 @@ export default function App() {
             <Save size={16} />
             Save Project
           </button>
+          
+          {baseImage && !showUnity && (
+            <button
+              onClick={downloadCanvas}
+              className="flex items-center gap-2 px-4 py-2 border border-[#141414] text-[#141414] rounded-full text-sm font-medium hover:bg-[#141414]/5 transition-colors"
+            >
+              <ImageIcon size={16} />
+              Export Canvas
+            </button>
+          )}
+
           {resultImage && (
             <button
               onClick={downloadResult}
               className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] rounded-full text-sm font-medium hover:opacity-90 transition-opacity"
             >
               <Download size={16} />
-              Export
+              Export Result
             </button>
           )}
         </div>
@@ -570,16 +729,117 @@ export default function App() {
             </div>
           </section>
 
-          {/* Step 5: Prompt */}
+          {/* Step 5: Advanced Inpainting Layers */}
+          <section id="section-inpaint" className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono opacity-50">05</span>
+                <h2 className="text-xs uppercase font-bold tracking-widest">Inpaint Layers</h2>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const id = Math.random().toString(36).substr(2, 9);
+                    setInpaintLayers([...inpaintLayers, { id, lines: [], prompt: '' }]);
+                    setSelectedInpaintId(id);
+                    setIsInpaintMode(true);
+                  }}
+                  className="p-1 hover:bg-[#141414] hover:text-[#E4E3E0] rounded transition-colors"
+                  title="Add Inpaint Layer"
+                >
+                  <Plus size={16} />
+                </button>
+                <button
+                  onClick={() => setIsInpaintMode(!isInpaintMode)}
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors ${isInpaintMode ? 'bg-[#141414] text-[#E4E3E0]' : 'border border-[#141414] hover:bg-[#141414]/5'}`}
+                >
+                  {isInpaintMode ? 'On' : 'Off'}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {inpaintLayers.length === 0 && (
+                <p className="text-[10px] opacity-40 italic">No inpaint layers yet. Click + to add one.</p>
+              )}
+              {inpaintLayers.map((layer) => (
+                <div key={layer.id} className={`space-y-3 p-3 border border-[#141414] rounded-xl transition-all ${selectedInpaintId === layer.id ? 'bg-[#141414]/5 ring-1 ring-[#141414]' : 'bg-white/5'}`}>
+                  <div className="flex items-center justify-between" onClick={() => setSelectedInpaintId(layer.id)}>
+                    <div className="flex items-center gap-2 cursor-pointer">
+                      <div className={`w-3 h-3 rounded-full border border-[#141414] ${selectedInpaintId === layer.id ? 'bg-[#141414]' : ''}`} />
+                      <span className="text-[10px] font-mono uppercase">Mask Layer #{layer.id.slice(0, 4)}</span>
+                      {layer.lines.length > 0 && <span className="text-[8px] bg-[#141414] text-white px-1 rounded">Painted</span>}
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInpaintLayers(inpaintLayers.filter(l => l.id !== layer.id));
+                        if (selectedInpaintId === layer.id) setSelectedInpaintId(null);
+                      }}
+                      className="p-1 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  
+                  {selectedInpaintId === layer.id && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3 overflow-hidden">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                           <button className="p-1.5 bg-[#141414] text-[#E4E3E0] rounded">
+                            <Pen size={12} />
+                          </button>
+                          <div className="flex flex-col">
+                            <span className="text-[9px] uppercase font-bold opacity-60">Brush Size</span>
+                            <input
+                              type="range"
+                              min="5" max="150"
+                              value={brushSize}
+                              onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
+                              className="w-24 h-1 bg-[#141414]/20 rounded-lg appearance-none cursor-pointer accent-[#141414]"
+                            />
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const newLayers = inpaintLayers.map(l => l.id === layer.id ? { ...l, lines: [] } : l);
+                            setInpaintLayers(newLayers);
+                          }}
+                          className="text-[9px] uppercase font-bold text-red-500 hover:opacity-70"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                      <textarea
+                        value={layer.prompt}
+                        onChange={(e) => {
+                          const newLayers = inpaintLayers.map(l => l.id === layer.id ? { ...l, prompt: e.target.value } : l);
+                          setInpaintLayers(newLayers);
+                        }}
+                        onFocus={() => setUnityKeyboardCapture(false)}
+                        onBlur={() => setUnityKeyboardCapture(true)}
+                        placeholder="What to change in this specific masked area? (e.g., 'Modern skyscraper', 'Waterfall')"
+                        className="w-full h-20 bg-transparent border border-[#141414]/30 rounded-lg p-2 text-[10px] focus:outline-none focus:border-[#141414] resize-none"
+                      />
+                    </motion.div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Step 6: General Instructions */}
           <section id="section-prompt" className="space-y-4">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono opacity-50">05</span>
-              <h2 className="text-xs uppercase font-bold tracking-widest">AI Instructions</h2>
+              <span className="text-[10px] font-mono opacity-50">06</span>
+              <h2 className="text-xs uppercase font-bold tracking-widest">Global Style</h2>
             </div>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe the desired changes (e.g., 'Enhance lighting', 'Blend overlays naturally', 'Cyberpunk aesthetic')..."
+              onFocus={() => setUnityKeyboardCapture(false)}
+              onBlur={() => setUnityKeyboardCapture(true)}
+              placeholder="Overall instructions (e.g., 'Sunset lighting', 'Oil painting style', '8k resolution')..."
               className="w-full h-32 bg-transparent border border-[#141414] rounded-xl p-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414] resize-none"
             />
           </section>
@@ -657,8 +917,8 @@ export default function App() {
                 className="absolute inset-0 shadow-2xl bg-white"
                 style={{ width: canvasSize.width, height: canvasSize.height }}
               >
-                {/* Result Overlay */}
-                {resultImage && (
+                {/* Result Overlay (Only show if NOT in inpaint mode) */}
+                {resultImage && !isInpaintMode && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -666,6 +926,16 @@ export default function App() {
                   >
                     <img src={resultImage} alt="Result" className="w-full h-full object-contain" />
                     <div className="absolute top-4 right-4 flex gap-2">
+                      <button
+                        onClick={() => {
+                          setBaseImage(resultImage); // Accept result as new base
+                          setResultImage(null);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] rounded-full text-[10px] font-bold uppercase hover:scale-105 transition-transform"
+                      >
+                        <RefreshCw size={14} />
+                        Keep & Edit
+                      </button>
                       <button
                         onClick={() => setResultImage(null)}
                         className="p-2 bg-[#141414] text-[#E4E3E0] rounded-full hover:scale-110 transition-transform"
@@ -692,9 +962,12 @@ export default function App() {
                   }}
                 >
                   <Layer>
-                    {/* Base Image */}
-                    {baseImgObj && (() => {
-                      const imgRatio = baseImgObj.width / baseImgObj.height;
+                    {/* Background Image (Base or Result) */}
+                    {(resultImgObj || baseImgObj) && (() => {
+                      const activeImg = (isInpaintMode && resultImgObj) ? resultImgObj : (resultImgObj || baseImgObj);
+                      if (!activeImg) return null;
+
+                      const imgRatio = activeImg.width / activeImg.height;
                       const canvasRatio = canvasSize.width / canvasSize.height;
 
                       let drawWidth = canvasSize.width;
@@ -714,7 +987,7 @@ export default function App() {
                       return (
                         <KonvaImage
                           id="base-image"
-                          image={baseImgObj}
+                          image={activeImg}
                           x={x}
                           y={y}
                           width={drawWidth}
@@ -723,7 +996,7 @@ export default function App() {
                       );
                     })()}
 
-                    {/* Overlays */}
+                    {/* Mask Drawing Layer */}
                     {overlays.map((item) => (
                       <URLImage
                         key={item.id}
@@ -738,6 +1011,20 @@ export default function App() {
                         }}
                       />
                     ))}
+                  </Layer>
+
+                  {/* Top Layer for Tools/Masking */}
+                  <Layer id="tool-layer">
+                    <MaskDrawer
+                      width={canvasSize.width}
+                      height={canvasSize.height}
+                      brushSize={brushSize}
+                      lines={inpaintLayers.find(l => l.id === selectedInpaintId)?.lines || []}
+                      setLines={(newLines) => {
+                        setInpaintLayers(inpaintLayers.map(l => l.id === selectedInpaintId ? { ...l, lines: newLines } : l));
+                      }}
+                      isVisible={isInpaintMode && selectedInpaintId !== null}
+                    />
                   </Layer>
                 </Stage>
               </motion.div>

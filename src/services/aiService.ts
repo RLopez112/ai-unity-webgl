@@ -14,19 +14,38 @@ export interface StyleReference {
   weight?: number;
 }
 
+export interface InpaintRequest {
+  maskBase64: string;
+  prompt: string;
+}
+
 export async function editImage(
   baseImageBase64: string,
   mainPrompt: string,
   styleReferences: StyleReference[] = [],
   baseImageWeight: number = 100,
   sobelImageBase64: string | null = null,
-  sobelWeight: number = 100
+  sobelWeight: number = 100,
+  inpaintRequests: InpaintRequest[] = []
 ): Promise<string> {
   const ai = getAI();
 
   const cleanBase64 = (str: string) => str.includes(",") ? str.split(",")[1] : str;
 
   const parts: any[] = [];
+
+  // Inpainting Masks (if provided)
+  inpaintRequests.forEach((req, index) => {
+    parts.push({
+      inlineData: {
+        data: cleanBase64(req.maskBase64),
+        mimeType: "image/png",
+      },
+    });
+    parts.push({
+      text: `INPAINTING MASK #${index + 1}: The image provided immediately above is a binary mask. White pixels indicate the regions that MUST be modified specifically according to this prompt: "${req.prompt}". Black/transparent pixels indicate regions to be preserved.`,
+    });
+  });
 
   if (sobelImageBase64) {
     parts.push({
@@ -68,7 +87,7 @@ export async function editImage(
   const baseWeightText = baseImageWeight < 100 ? ` The intensity and influence of this base image must be exactly ${baseImageWeight}%. ` : " ";
   
   parts.push({
-    text: `CRITICAL PRIORITY: The image provided immediately above is the PRIMARY SUBJECT.${baseWeightText}You MUST preserve its exact geometry,shape and outline of whats visible in the image, layout, perspective, and core content. The Style References provided earlier are strictly for artistic style, color palette,lighting AND what the reference prompt for that image says.  The output MUST strictly be a 16:9 widescreen image.`,
+    text: `CRITICAL PRIORITY: The image provided immediately above is the PRIMARY SUBJECT.${baseWeightText}You MUST preserve its exact geometry,shape and outline of whats visible in the image, layout, perspective, and core content. The Style References provided earlier are strictly for artistic style, color palette,lighting AND what the reference prompt for that image says.  The output MUST strictly be a 16:9 widescreen image. ${inpaintRequests.length > 0 ? 'FOR THE INPAINTING AREAS SPECIFIED BY THE MULTIPLE MASKS: Generate new content based on THEIR RESPECTIVE individual prompts while ensuring a seamless blend with the preserved areas.' : ''}`,
   });
 
   const response: GenerateContentResponse = await ai.models.generateContent({

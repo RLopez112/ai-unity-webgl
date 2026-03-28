@@ -7,8 +7,26 @@ interface UnityPlayerProps {
 declare global {
   interface Window {
     createUnityInstance: any;
+    unityInstance: any;
   }
 }
+
+// --- Helper to handle Unity Keyboard Capture ---
+export const setUnityKeyboardCapture = (enabled: boolean) => {
+  if (window.unityInstance) {
+    try {
+      // Unity specific fix for keyboard capture
+      if (window.unityInstance.Module && window.unityInstance.Module.canvas) {
+        // This is a common internal Unity property in WebGL
+        if (window.unityInstance.Module.WebGLInput) {
+          window.unityInstance.Module.WebGLInput.captureAllKeyboardInput = enabled;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to toggle Unity keyboard capture:", e);
+    }
+  }
+};
 
 export const UnityPlayer: React.FC<UnityPlayerProps> = ({ onCanvasReady }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -46,11 +64,8 @@ export const UnityPlayer: React.FC<UnityPlayerProps> = ({ onCanvasReady }) => {
           // allowing React text inputs to function normally.
           if (unityInstance.SetFullscreen) { /* just a dummy check */ }
           canvasRef.current!.setAttribute("tabindex", "1");
-          // Unity WebGL specifically uses WebGLInput.captureAllKeyboardInput
-          // We can't access it easily from TS, so we might need to rely on the canvas behavior
-          // But the best way is often unityInstance.SendMessage if they have a script for it,
-          // or setting the canvas tabindex. 
-
+          window.unityInstance = unityInstance;
+          
           setIsLoaded(true);
           if (onCanvasReady && canvasRef.current) {
             onCanvasReady(canvasRef.current);
